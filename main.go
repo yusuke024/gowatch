@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	noRun = flag.Bool("n", false, "only run gofmt")
+	watchPath = "."
+	noRun     = flag.Bool("n", false, "only run gofmt")
 )
 
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
@@ -41,7 +42,12 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 func main() {
 	flag.Parse()
 
-	path, err := filepath.Abs(".")
+	fmt.Println(flag.NArg())
+	if flag.NArg() > 0 {
+		watchPath = flag.Arg(0)
+	}
+
+	path, err := filepath.Abs(watchPath)
 	if err != nil {
 		panic(err)
 	}
@@ -59,7 +65,7 @@ func main() {
 
 	fmt.Println("Watching:", path)
 
-	command := exec.Command("gofmt", "-w", ".")
+	command := exec.Command("gofmt", "-w", path)
 	command.Run()
 
 	for event := range watcher.Events {
