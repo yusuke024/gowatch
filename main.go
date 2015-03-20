@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -9,6 +10,10 @@ import (
 	"path/filepath"
 
 	"gopkg.in/fsnotify.v1"
+)
+
+var (
+	noRun = flag.Bool("n", false, "only run gofmt")
 )
 
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
@@ -34,6 +39,8 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 }
 
 func main() {
+	flag.Parse()
+
 	path, err := filepath.Abs(".")
 	if err != nil {
 		panic(err)
@@ -57,12 +64,13 @@ func main() {
 
 	for event := range watcher.Events {
 		if event.Op == fsnotify.Create || event.Op == fsnotify.Write {
+			relPath, _ := filepath.Rel(path, event.Name)
+			fmt.Println(relPath)
 			if filepath.Ext(event.Name) == ".go" {
 				command := exec.Command("gofmt", "-w", event.Name)
 				command.Run()
 
-				packageName, _ := getPackageNameAndImport(event.Name)
-				if packageName == "main" {
+				if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
 					fmt.Println("Run file:", event.Name)
 					command = exec.Command("go", "run", event.Name)
 					command.Stdout = os.Stdout
