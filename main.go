@@ -50,7 +50,6 @@ func log(a ...interface{}) {
 func main() {
 	flag.Parse()
 
-	fmt.Println(flag.NArg())
 	if flag.NArg() > 0 {
 		watchPath = flag.Arg(0)
 	}
