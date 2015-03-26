@@ -39,6 +39,14 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 	return
 }
 
+func log(a ...interface{}) {
+	var b []interface{}
+	b = append(b, "\033[33mgowatch:")
+	b = append(b, a...)
+	b = append(b, "\033[0m")
+	fmt.Fprintln(os.Stderr, b...)
+}
+
 func main() {
 	flag.Parse()
 
@@ -63,7 +71,7 @@ func main() {
 	}
 	defer watcher.Close()
 
-	fmt.Println("Watching:", path)
+	log("watching", path)
 
 	command := exec.Command("gofmt", "-w", path)
 	command.Run()
@@ -71,13 +79,13 @@ func main() {
 	for event := range watcher.Events {
 		if event.Op == fsnotify.Create || event.Op == fsnotify.Write {
 			relPath, _ := filepath.Rel(path, event.Name)
-			fmt.Println(relPath)
+			log("gofmt", relPath)
 			if filepath.Ext(event.Name) == ".go" {
 				command := exec.Command("gofmt", "-w", event.Name)
 				command.Run()
 
 				if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
-					fmt.Println("Run file:", event.Name)
+					log("run", relPath)
 					command = exec.Command("go", "run", event.Name)
 					command.Stdout = os.Stdout
 					command.Run()
