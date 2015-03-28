@@ -5,17 +5,31 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/fsnotify.v1"
 )
 
 var (
-	watchPath = "."
-	noRun     = flag.Bool("n", false, "only run gofmt")
+	watchPath  = "."
+	noRun      = flag.Bool("n", false, "only run gofmt")
+	delay      = flag.Int("d", 1, "delay time before detecting file change")
+	isPipe     = false
+	exitCode   = 0
+	lastReport = make(map[string]time.Time)
 )
+
+// func isMainPackage(f os.File) Bool {
+
+// }
+
+// func hasMainFunction(f os.File) Bool {
+
+// }
 
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
 	fset := token.NewFileSet() // positions are relative to fset
@@ -39,6 +53,12 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 	return
 }
 
+// func isGoFile(f os.FileInfo) bool {
+// 	// ignore non-Go files
+// 	name := f.Name()
+// 	return !f.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".go")
+// }
+
 func log(a ...interface{}) {
 	var b []interface{}
 	b = append(b, "\033[33mgowatch:")
@@ -48,6 +68,11 @@ func log(a ...interface{}) {
 }
 
 func main() {
+	gowatchMain()
+	os.Exit(exitCode)
+}
+
+func gowatchMain() {
 	flag.Parse()
 
 	if flag.NArg() > 0 {
@@ -75,19 +100,29 @@ func main() {
 	command := exec.Command("gofmt", "-w", path)
 	command.Run()
 
+	fi, _ := os.Stdout.Stat()
+	isPipe = fi.Mode()&os.ModeNamedPipe != 0
+
 	for event := range watcher.Events {
 		if event.Op == fsnotify.Create || event.Op == fsnotify.Write {
+			if time.Since(lastReport[event.Name]) < time.Duration(*delay)*time.Second {
+				continue
+			}
+			lastReport[event.Name] = time.Now()
 			relPath, _ := filepath.Rel(path, event.Name)
-			log("gofmt", relPath)
-			if filepath.Ext(event.Name) == ".go" {
-				command := exec.Command("gofmt", "-w", event.Name)
-				command.Run()
-
-				if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
-					log("run", relPath)
-					command = exec.Command("go", "run", event.Name)
-					command.Stdout = os.Stdout
+			if isPipe {
+				io.WriteString(os.Stdout, relPath+"\n")
+			} else {
+				if filepath.Ext(event.Name) == ".go" {
+					log("gofmt -w", relPath)
+					command := exec.Command("gofmt", "-w", event.Name)
 					command.Run()
+					if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
+						log("run", relPath)
+						command = exec.Command("go", "run", event.Name)
+						command.Stdout = os.Stdout
+						command.Run()
+					}
 				}
 			}
 		}
