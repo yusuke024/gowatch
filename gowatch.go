@@ -6,6 +6,8 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
+	"io/ioutil"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,8 +16,16 @@ import (
 	"gopkg.in/fsnotify.v1"
 )
 
+type ColorLogger log.Logger
+
+const (
+	logPrefix  = "\033[33m"
+	logPostfix = "\033[0m"
+)
+
 var (
-	watchPath  = "."
+	watchedRun = ""
+	watchedFmt = "."
 	noRun      = flag.Bool("n", false, "only run gofmt")
 	delay      = flag.Int("d", 1, "delay time before detecting file change")
 	isPipe     = false
@@ -23,9 +33,12 @@ var (
 	lastReport = make(map[string]time.Time)
 )
 
-// func isMainPackage(f os.File) Bool {
+func isMainPackage(sourceName string) bool {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, sourceName, nil, parser.ImportsOnly)
 
-// }
+	return f.Name.Name == "main"
+}
 
 // func hasMainFunction(f os.File) Bool {
 
@@ -53,18 +66,15 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 	return
 }
 
-// func isGoFile(f os.FileInfo) bool {
-// 	// ignore non-Go files
-// 	name := f.Name()
-// 	return !f.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".go")
-// }
-
-func log(a ...interface{}) {
-	var b []interface{}
-	b = append(b, "\033[33mgowatch:")
-	b = append(b, a...)
-	b = append(b, "\033[0m")
-	fmt.Fprintln(os.Stderr, b...)
+func getMainFile(path string) string {
+	fi, _ := ioutil.ReadDir(path)
+	for _, f := range fi {
+		fmt.Println(f.Name())
+		if filepath.Ext(f.Name()) == ".go" {
+			fmt.Println(isMainPackage(f.Name()))
+		}
+	}
+	return ""
 }
 
 func main() {
@@ -75,14 +85,23 @@ func main() {
 func gowatchMain() {
 	flag.Parse()
 
-	if flag.NArg() > 0 {
-		watchPath = flag.Arg(0)
-	}
+	log.SetPrefix(logPrefix)
 
-	path, err := filepath.Abs(watchPath)
+	path, err := filepath.Abs(watchedFmt)
 	if err != nil {
 		panic(err)
 	}
+
+	switch flag.NArg() {
+	case 0:
+	case 1:
+		watchedRun = flag.Arg(0)
+	case 2:
+	default:
+	}
+
+	watchedRun = getMainFile(path)
+	fmt.Println(watchedRun)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -95,9 +114,12 @@ func gowatchMain() {
 	}
 	defer watcher.Close()
 
-	log("watching", path)
+	log.Println("watching", path, logPostfix)
 
+	log.Println("gofmt -w", path, logPostfix)
 	command := exec.Command("gofmt", "-w", path)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
 	command.Run()
 
 	fi, _ := os.Stdout.Stat()
@@ -114,15 +136,18 @@ func gowatchMain() {
 				io.WriteString(os.Stdout, relPath+"\n")
 			} else {
 				if filepath.Ext(event.Name) == ".go" {
-					log("gofmt -w", relPath)
+					log.Println("gofmt -w", relPath, logPostfix)
 					command := exec.Command("gofmt", "-w", event.Name)
+					command.Stdout = os.Stdout
+					command.Stderr = os.Stderr
 					command.Run()
-					if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
-						log("run", relPath)
-						command = exec.Command("go", "run", event.Name)
-						command.Stdout = os.Stdout
-						command.Run()
-					}
+					// if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
+					// 	log.Println("run", relPath, logPostfix)
+					// 	command = exec.Command("go", "run", event.Name)
+					// 	command.Stdout = os.Stdout
+					// 	command.Stderr = os.Stderr
+					// 	command.Run()
+					// }
 				}
 			}
 		}
