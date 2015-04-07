@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/fsnotify.v1"
@@ -33,15 +34,8 @@ var (
 	lastReport = make(map[string]time.Time)
 )
 
-func isMainPackage(sourceName string) bool {
-	fset := token.NewFileSet()
-	f, _ := parser.ParseFile(fset, sourceName, nil, parser.ImportsOnly)
-
-	return f.Name.Name == "main"
-}
-
 // func hasMainFunction(f os.File) Bool {
-
+//
 // }
 
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
@@ -77,6 +71,35 @@ func getMainFile(path string) string {
 	return ""
 }
 
+func isGoFile(f os.FileInfo) bool {
+	// ignore non-Go files
+	name := f.Name()
+	return !f.IsDir() && !strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".go")
+}
+
+func isMainPackage(sourceName string) bool {
+	fset := token.NewFileSet()
+	f, _ := parser.ParseFile(fset, sourceName, nil, parser.ImportsOnly)
+
+	return f.Name.Name == "main"
+}
+
+func visitFile(path string, info os.FileInfo, err error) error {
+	if isGoFile(info) {
+		format(path)
+	}
+	return nil
+}
+
+func format(path string) error {
+	log.Println("gofmt -w", path, logPostfix)
+	command := exec.Command("gofmt", "-w", path)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	command.Run()
+	return nil
+}
+
 func main() {
 	gowatchMain()
 	os.Exit(exitCode)
@@ -92,16 +115,16 @@ func gowatchMain() {
 		panic(err)
 	}
 
-	switch flag.NArg() {
-	case 0:
-	case 1:
-		watchedRun = flag.Arg(0)
-	case 2:
-	default:
-	}
-
-	watchedRun = getMainFile(path)
-	fmt.Println(watchedRun)
+	// switch flag.NArg() {
+	// case 0:
+	// case 1:
+	// 	watchedRun = flag.Arg(0)
+	// case 2:
+	// default:
+	// }
+	//
+	// watchedRun = getMainFile(path)
+	// fmt.Println(watchedRun)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -116,11 +139,7 @@ func gowatchMain() {
 
 	log.Println("watching", path, logPostfix)
 
-	log.Println("gofmt -w", path, logPostfix)
-	command := exec.Command("gofmt", "-w", path)
-	command.Stdout = os.Stdout
-	command.Stderr = os.Stderr
-	command.Run()
+	filepath.Walk(path, visitFile)
 
 	fi, _ := os.Stdout.Stat()
 	isPipe = fi.Mode()&os.ModeNamedPipe != 0
@@ -135,12 +154,9 @@ func gowatchMain() {
 			if isPipe {
 				io.WriteString(os.Stdout, relPath+"\n")
 			} else {
-				if filepath.Ext(event.Name) == ".go" {
+				if f, _ := os.Stat(event.Name); isGoFile(f) {
 					log.Println("gofmt -w", relPath, logPostfix)
-					command := exec.Command("gofmt", "-w", event.Name)
-					command.Stdout = os.Stdout
-					command.Stderr = os.Stderr
-					command.Run()
+					format(event.Name)
 					// if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
 					// 	log.Println("run", relPath, logPostfix)
 					// 	command = exec.Command("go", "run", event.Name)
