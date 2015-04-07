@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"io"
@@ -84,9 +85,27 @@ func isMainPackage(sourceName string) bool {
 	return f.Name.Name == "main"
 }
 
+func isMainFile(sourceName string) bool {
+	fset := token.NewFileSet()
+
+	f, err := parser.ParseFile(fset, sourceName, nil, 0)
+	if err != nil {
+		return false
+	}
+
+	if o := f.Scope.Lookup("main"); f.Name.Name == "main" && o != nil && o.Kind == ast.Fun {
+		return true
+	}
+
+	return false
+}
+
 func visitFile(path string, info os.FileInfo, err error) error {
 	if isGoFile(info) {
 		format(path)
+		if isMainFile(path) {
+			fmt.Println("main file -", path)
+		}
 	}
 	return nil
 }
