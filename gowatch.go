@@ -7,7 +7,6 @@ import (
 	"go/parser"
 	"go/token"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
@@ -35,10 +34,6 @@ var (
 	lastReport = make(map[string]time.Time)
 )
 
-// func hasMainFunction(f os.File) Bool {
-//
-// }
-
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
 	fset := token.NewFileSet() // positions are relative to fset
 
@@ -59,17 +54,6 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 	}
 
 	return
-}
-
-func getMainFile(path string) string {
-	fi, _ := ioutil.ReadDir(path)
-	for _, f := range fi {
-		fmt.Println(f.Name())
-		if filepath.Ext(f.Name()) == ".go" {
-			fmt.Println(isMainPackage(f.Name()))
-		}
-	}
-	return ""
 }
 
 func isGoFile(f os.FileInfo) bool {
@@ -101,6 +85,7 @@ func isMainFile(sourceName string) bool {
 }
 
 func visitFile(path string, info os.FileInfo, err error) error {
+	log.Println(info.Name())
 	if isGoFile(info) {
 		format(path)
 		if isMainFile(path) {
@@ -117,6 +102,19 @@ func format(path string) error {
 	command.Stderr = os.Stderr
 	command.Run()
 	return nil
+}
+
+func goFiles(path string) (goFiles, mainFiles []string) {
+	filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if isGoFile(info) {
+			goFiles = append(goFiles, path)
+			if isMainFile(path) {
+				mainFiles = append(mainFiles, path)
+			}
+		}
+		return nil
+	})
+	return
 }
 
 func main() {
@@ -156,9 +154,28 @@ func gowatchMain() {
 	}
 	defer watcher.Close()
 
-	log.Println("watching", path, logPostfix)
+	goFiles, mainFiles := goFiles(path)
 
-	filepath.Walk(path, visitFile)
+	// pre run gofmt on found Go files
+	for _, f := range goFiles {
+		format(f)
+	}
+
+	if len(mainFiles) == 0 {
+		watchedRun = mainFiles[0]
+		log.Println("found a main Go file, watch and run", mainFiles[0], logPostfix)
+	} else if len(mainFiles) > 0 {
+		watchedRun = mainFiles[0]
+		log.Println("found more than one main Go files, watch and run", mainFiles[0], logPostfix)
+	} else {
+		log.Println("main Go files not found", logPostfix)
+	}
+
+	if len(watchedRun) > 0 {
+		log.Println("run", watchedRun, logPostfix)
+	}
+
+	log.Println("watching", path, logPostfix)
 
 	fi, _ := os.Stdout.Stat()
 	isPipe = fi.Mode()&os.ModeNamedPipe != 0
@@ -174,8 +191,10 @@ func gowatchMain() {
 				io.WriteString(os.Stdout, relPath+"\n")
 			} else {
 				if f, _ := os.Stat(event.Name); isGoFile(f) {
-					log.Println("gofmt -w", relPath, logPostfix)
 					format(event.Name)
+					if event.Name == watchedRun {
+						log.Println("restart", event.Name)
+					}
 					// if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
 					// 	log.Println("run", relPath, logPostfix)
 					// 	command = exec.Command("go", "run", event.Name)
