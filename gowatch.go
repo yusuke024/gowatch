@@ -161,18 +161,27 @@ func gowatchMain() {
 		format(f)
 	}
 
-	if len(mainFiles) == 0 {
+	if len(mainFiles) == 1 {
 		watchedRun = mainFiles[0]
 		log.Println("found a main Go file, watch and run", mainFiles[0], logPostfix)
-	} else if len(mainFiles) > 0 {
+	} else if len(mainFiles) > 1 {
 		watchedRun = mainFiles[0]
 		log.Println("found more than one main Go files, watch and run", mainFiles[0], logPostfix)
 	} else {
 		log.Println("main Go files not found", logPostfix)
 	}
 
-	if len(watchedRun) > 0 {
-		log.Println("run", watchedRun, logPostfix)
+	var runCmd *exec.Cmd
+
+	if len(watchedRun) > 0 && !*noRun {
+		runCmd = exec.Command("go", "run", watchedRun)
+		runCmd.Stdout = os.Stdout
+		runCmd.Stderr = os.Stderr
+		func(runCmd *exec.Cmd) {
+			log.Println("go run", watchedRun, logPostfix)
+			runCmd.Run()
+			log.Println("exit", watchedRun, logPostfix)
+		}(runCmd)
 	}
 
 	log.Println("watching", path, logPostfix)
@@ -192,16 +201,21 @@ func gowatchMain() {
 			} else {
 				if f, _ := os.Stat(event.Name); isGoFile(f) {
 					format(event.Name)
-					if event.Name == watchedRun {
-						log.Println("restart", event.Name)
+					if event.Name == watchedRun && !*noRun {
+						if runCmd != nil && runCmd.Process != nil {
+							runCmd.Process.Kill()
+							log.Println("kill", event.Name, logPostfix)
+						}
+
+						runCmd = exec.Command("go", "run", watchedRun)
+						runCmd.Stdout = os.Stdout
+						runCmd.Stderr = os.Stderr
+						func(runCmd *exec.Cmd) {
+							log.Println("go run", watchedRun, logPostfix)
+							runCmd.Run()
+							log.Println("exit", watchedRun, logPostfix)
+						}(runCmd)
 					}
-					// if packageName, _ := getPackageNameAndImport(event.Name); packageName == "main" && !*noRun {
-					// 	log.Println("run", relPath, logPostfix)
-					// 	command = exec.Command("go", "run", event.Name)
-					// 	command.Stdout = os.Stdout
-					// 	command.Stderr = os.Stderr
-					// 	command.Run()
-					// }
 				}
 			}
 		}
