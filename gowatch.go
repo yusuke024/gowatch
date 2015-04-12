@@ -28,6 +28,7 @@ var (
 	watchedRun = ""
 	watchedFmt = "."
 	noRun      = flag.Bool("n", false, "only run gofmt")
+	inFile     = flag.String("in", "", "input file")
 	delay      = flag.Int("d", 1, "delay time before detecting file change")
 	isPipe     = false
 	exitCode   = 0
@@ -117,6 +118,35 @@ func goFiles(path string) (goFiles, mainFiles []string) {
 	return
 }
 
+var runCmd *exec.Cmd
+
+func goRun(sourceName string) {
+	if runCmd != nil && runCmd.Process != nil {
+		runCmd.Process.Kill()
+	}
+
+	runCmd = exec.Command("go", "run", sourceName)
+	go func(runCmd *exec.Cmd) {
+		if len(*inFile) > 0 {
+			f, err := os.Open(*inFile)
+			if err != nil {
+				runCmd.Stdin = os.Stdin
+			} else {
+				runCmd.Stdin = f
+				defer f.Close()
+			}
+			runCmd.Stdin = f
+		} else {
+			runCmd.Stdin = os.Stdin
+		}
+		runCmd.Stdout = os.Stdout
+		runCmd.Stderr = os.Stderr
+		log.Println("go run", watchedRun, logPostfix)
+		runCmd.Run()
+		log.Println("exit", watchedRun, logPostfix)
+	}(runCmd)
+}
+
 func main() {
 	gowatchMain()
 	os.Exit(exitCode)
@@ -131,17 +161,6 @@ func gowatchMain() {
 	if err != nil {
 		panic(err)
 	}
-
-	// switch flag.NArg() {
-	// case 0:
-	// case 1:
-	// 	watchedRun = flag.Arg(0)
-	// case 2:
-	// default:
-	// }
-	//
-	// watchedRun = getMainFile(path)
-	// fmt.Println(watchedRun)
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -171,17 +190,8 @@ func gowatchMain() {
 		log.Println("main Go files not found", logPostfix)
 	}
 
-	var runCmd *exec.Cmd
-
 	if len(watchedRun) > 0 && !*noRun {
-		runCmd = exec.Command("go", "run", watchedRun)
-		runCmd.Stdout = os.Stdout
-		runCmd.Stderr = os.Stderr
-		func(runCmd *exec.Cmd) {
-			log.Println("go run", watchedRun, logPostfix)
-			runCmd.Run()
-			log.Println("exit", watchedRun, logPostfix)
-		}(runCmd)
+		goRun(watchedRun)
 	}
 
 	log.Println("watching", path, logPostfix)
@@ -202,19 +212,7 @@ func gowatchMain() {
 				if f, _ := os.Stat(event.Name); isGoFile(f) {
 					format(event.Name)
 					if event.Name == watchedRun && !*noRun {
-						if runCmd != nil && runCmd.Process != nil {
-							runCmd.Process.Kill()
-							log.Println("kill", event.Name, logPostfix)
-						}
-
-						runCmd = exec.Command("go", "run", watchedRun)
-						runCmd.Stdout = os.Stdout
-						runCmd.Stderr = os.Stderr
-						func(runCmd *exec.Cmd) {
-							log.Println("go run", watchedRun, logPostfix)
-							runCmd.Run()
-							log.Println("exit", watchedRun, logPostfix)
-						}(runCmd)
+						goRun(watchedRun)
 					}
 				}
 			}
