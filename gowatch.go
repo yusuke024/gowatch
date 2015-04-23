@@ -17,18 +17,12 @@ import (
 	"gopkg.in/fsnotify.v1"
 )
 
-type ColorLogger log.Logger
-
-const (
-	logPrefix  = "\033[33m"
-	logPostfix = "\033[0m"
-)
-
 var (
 	watchedRun = ""
 	watchedFmt = "."
 	noRun      = flag.Bool("n", false, "only run gofmt")
 	inFile     = flag.String("in", "", "input file")
+
 	delay      = flag.Int("d", 1, "delay time before detecting file change")
 	isPipe     = false
 	exitCode   = 0
@@ -97,7 +91,7 @@ func visitFile(path string, info os.FileInfo, err error) error {
 }
 
 func format(path string) error {
-	log.Println("gofmt -w", path, logPostfix)
+	log.Println("gofmt -w", path)
 	command := exec.Command("gofmt", "-w", path)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -135,15 +129,14 @@ func goRun(sourceName string) {
 				runCmd.Stdin = f
 				defer f.Close()
 			}
-			runCmd.Stdin = f
 		} else {
 			runCmd.Stdin = os.Stdin
 		}
 		runCmd.Stdout = os.Stdout
 		runCmd.Stderr = os.Stderr
-		log.Println("go run", watchedRun, logPostfix)
+		log.Println("go run", watchedRun)
 		runCmd.Run()
-		log.Println("exit", watchedRun, logPostfix)
+		log.Println("exit", watchedRun)
 	}(runCmd)
 }
 
@@ -154,8 +147,6 @@ func main() {
 
 func gowatchMain() {
 	flag.Parse()
-
-	log.SetPrefix(logPrefix)
 
 	path, err := filepath.Abs(watchedFmt)
 	if err != nil {
@@ -182,19 +173,19 @@ func gowatchMain() {
 
 	if len(mainFiles) == 1 {
 		watchedRun = mainFiles[0]
-		log.Println("found a main Go file, watch and run", mainFiles[0], logPostfix)
+		log.Println("found a main Go file, watch and run", mainFiles[0])
 	} else if len(mainFiles) > 1 {
 		watchedRun = mainFiles[0]
-		log.Println("found more than one main Go files, watch and run", mainFiles[0], logPostfix)
+		log.Println("found more than one main Go files, watch and run", mainFiles[0])
 	} else {
-		log.Println("main Go files not found", logPostfix)
+		log.Println("main Go files not found")
 	}
 
 	if len(watchedRun) > 0 && !*noRun {
 		goRun(watchedRun)
 	}
 
-	log.Println("watching", path, logPostfix)
+	log.Println("watching", path)
 
 	fi, _ := os.Stdout.Stat()
 	isPipe = fi.Mode()&os.ModeNamedPipe != 0
