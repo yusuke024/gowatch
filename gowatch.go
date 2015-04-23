@@ -117,6 +117,7 @@ var runCmd *exec.Cmd
 func goRun(sourceName string) {
 	if runCmd != nil && runCmd.Process != nil {
 		runCmd.Process.Kill()
+		runCmd.Process.Wait()
 	}
 
 	runCmd = exec.Command("go", "run", sourceName)
