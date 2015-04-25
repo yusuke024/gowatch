@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"strconv"
 
 	"gopkg.in/fsnotify.v1"
 )
@@ -32,7 +33,7 @@ var (
 func getPackageNameAndImport(sourceName string) (packageName string, imports []string) {
 	fset := token.NewFileSet() // positions are relative to fset
 
-	// Parse the file containing this very example
+	// parse the file containing this very example
 	// but stop after processing the imports.
 	f, err := parser.ParseFile(fset, sourceName, nil, parser.ImportsOnly)
 	if err != nil {
@@ -40,7 +41,7 @@ func getPackageNameAndImport(sourceName string) (packageName string, imports []s
 		return
 	}
 
-	// Print the imports from the file's AST.
+	// print the imports from the file's AST.
 	packageName = f.Name.Name
 
 	for _, s := range f.Imports {
@@ -116,12 +117,14 @@ var runCmd *exec.Cmd
 
 func goRun(sourceName string) {
 	if runCmd != nil && runCmd.Process != nil {
+		log.Println("kill process", runCmd.Process.Pid)
 		runCmd.Process.Kill()
 		runCmd.Process.Wait()
 	}
 
 	runCmd = exec.Command("go", "run", sourceName)
-	go func(runCmd *exec.Cmd) {
+
+	func(runCmd *exec.Cmd) {
 		if len(*inFile) > 0 {
 			f, err := os.Open(*inFile)
 			if err != nil {
@@ -130,14 +133,12 @@ func goRun(sourceName string) {
 				runCmd.Stdin = f
 				defer f.Close()
 			}
-		} else {
-			runCmd.Stdin = os.Stdin
 		}
 		runCmd.Stdout = os.Stdout
 		runCmd.Stderr = os.Stderr
-		log.Println("go run", watchedRun)
-		runCmd.Run()
-		log.Println("exit", watchedRun)
+		runCmd.Start()
+		log.Println("go run", watchedRun, "("+strconv.Itoa(runCmd.Process.Pid)+")")
+		runCmd.Wait()
 	}(runCmd)
 }
 
@@ -179,11 +180,12 @@ func gowatchMain() {
 		watchedRun = mainFiles[0]
 		log.Println("found more than one main Go files, watch and run", mainFiles[0])
 	} else {
+		watchedRun = ""
 		log.Println("main Go files not found")
 	}
 
 	if len(watchedRun) > 0 && !*noRun {
-		goRun(watchedRun)
+		go goRun(watchedRun)
 	}
 
 	log.Println("watching", path)
@@ -204,7 +206,7 @@ func gowatchMain() {
 				if f, _ := os.Stat(event.Name); isGoFile(f) {
 					format(event.Name)
 					if event.Name == watchedRun && !*noRun {
-						goRun(watchedRun)
+						go goRun(watchedRun)
 					}
 				}
 			}
