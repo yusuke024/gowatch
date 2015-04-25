@@ -12,7 +12,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -21,7 +20,7 @@ import (
 )
 
 var (
-	watchedRun = ""
+	watchedRun = flag.String("r", "", "main go file to run")
 	watchedFmt = "."
 	noRun      = flag.Bool("n", false, "only run gofmt")
 	inFile     = flag.String("in", "", "input file")
@@ -82,19 +81,8 @@ func isMainFile(sourceName string) bool {
 	return false
 }
 
-func visitFile(path string, info os.FileInfo, err error) error {
-	log.Println(info.Name())
-	if isGoFile(info) {
-		format(path)
-		if isMainFile(path) {
-			fmt.Println("main file -", path)
-		}
-	}
-	return nil
-}
-
 func format(path string) error {
-	log.Println("gofmt -w", path)
+	log.Println("fmt", path)
 	command := exec.Command("gofmt", "-w", path)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -115,44 +103,47 @@ func goFiles(path string) (goFiles, mainFiles []string) {
 	return
 }
 
-var runCmd *exec.Cmd
+var goRunCmd *exec.Cmd
 
-func goRun(sourceName string) {
-	if runCmd != nil && runCmd.Process != nil {
-		log.Println("kill process", runCmd.Process.Pid)
+func runGoRun(sourceName string) {
+	if goRunCmd != nil && goRunCmd.Process != nil {
 		// to properly kill go run and its children
-		// we need to set runCmd.SysProcAttr.Setid to true
+		// we need to set goRunCmd.SysProcAttr.Setid to true
 		// and send kill signal to the process group
 		// with negative PID
-		syscall.Kill(-runCmd.Process.Pid, syscall.SIGKILL)
-		runCmd.Process.Wait()
+		syscall.Kill(-goRunCmd.Process.Pid, syscall.SIGKILL)
+		goRunCmd.Process.Wait()
 	}
 
-	runCmd = exec.Command("go", "run", sourceName)
+	goRunCmd = exec.Command("go", "run", sourceName)
 
-	func(runCmd *exec.Cmd) {
+	func(goRunCmd *exec.Cmd) {
 		if len(*inFile) > 0 {
 			f, err := os.Open(*inFile)
 			if err != nil {
-				runCmd.Stdin = os.Stdin
+				goRunCmd.Stdin = os.Stdin
 			} else {
-				runCmd.Stdin = f
+				goRunCmd.Stdin = f
 				defer f.Close()
 			}
 		}
-		runCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-		runCmd.Stdout = os.Stdout
-		runCmd.Stderr = os.Stderr
-		runCmd.Start()
-		log.Println("go run", watchedRun, "("+strconv.Itoa(runCmd.Process.Pid)+")")
-		runCmd.Wait()
-	}(runCmd)
+		goRunCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+		goRunCmd.Stdout = os.Stdout
+		goRunCmd.Stderr = os.Stderr
+		goRunCmd.Start()
+		log.Println("run", sourceName)
+		goRunCmd.Wait()
+	}(goRunCmd)
 }
 
-func cleanUp() {
-	if runCmd != nil && runCmd.Process != nil {
-		syscall.Kill(-runCmd.Process.Pid, syscall.SIGKILL)
-		runCmd.Process.Wait()
+func killGoRun() {
+	if goRunCmd != nil && goRunCmd.Process != nil && goRunCmd.ProcessState == nil {
+		// to properly kill go run and its children
+		// we need to set goRunCmd.SysProcAttr.Setid to true
+		// and send kill signal to the process group
+		// with negative PID
+		syscall.Kill(-goRunCmd.Process.Pid, syscall.SIGKILL)
+		goRunCmd.Process.Wait()
 	}
 }
 
@@ -187,20 +178,24 @@ func gowatchMain() {
 		format(f)
 	}
 
-	if len(mainFiles) == 1 {
-		watchedRun = mainFiles[0]
-		log.Println("found a main Go file, watch and run", mainFiles[0])
-	} else if len(mainFiles) > 1 {
-		watchedRun = mainFiles[0]
-		log.Println("found more than one main Go files, watch and run", mainFiles[0])
+	if len(*watchedRun) == 0 {
+		if len(mainFiles) == 1 {
+			*watchedRun = mainFiles[0]
+			log.Println("found a main Go file, watch and run", mainFiles[0])
+		} else if len(mainFiles) > 1 {
+			*watchedRun = mainFiles[0]
+			log.Println("found more than one main Go files, watch and run", mainFiles[0])
+		} else {
+			*watchedRun = ""
+			log.Println("main Go files not found")
+		}
 	} else {
-		watchedRun = ""
-		log.Println("main Go files not found")
+		*watchedRun, _ = filepath.Abs(*watchedRun)
 	}
 
-	if len(watchedRun) > 0 && !*noRun {
-		go goRun(watchedRun)
-        defer cleanUp()
+	if len(*watchedRun) > 0 && !*noRun {
+		go runGoRun(*watchedRun)
+		defer killGoRun()
 	}
 
 	log.Println("watching", path)
@@ -210,7 +205,7 @@ func gowatchMain() {
 
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt, os.Kill)
-    
+
 	for {
 		select {
 		case <-sig:
@@ -228,8 +223,8 @@ func gowatchMain() {
 					} else {
 						if f, _ := os.Stat(event.Name); isGoFile(f) {
 							format(event.Name)
-							if event.Name == watchedRun && !*noRun {
-								go goRun(watchedRun)
+							if event.Name == *watchedRun && !*noRun {
+								go runGoRun(*watchedRun)
 							}
 						}
 					}
