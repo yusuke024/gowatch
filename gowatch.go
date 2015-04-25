@@ -10,10 +10,12 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
-	"strings"
-	"time"
 	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
 	"gopkg.in/fsnotify.v1"
 )
@@ -118,7 +120,11 @@ var runCmd *exec.Cmd
 func goRun(sourceName string) {
 	if runCmd != nil && runCmd.Process != nil {
 		log.Println("kill process", runCmd.Process.Pid)
-		runCmd.Process.Kill()
+		// to properly kill go run and its children
+		// we need to set runCmd.SysProcAttr.Setid to true
+		// and send kill signal to the process group
+		// with negative PID
+		syscall.Kill(-runCmd.Process.Pid, syscall.SIGKILL)
 		runCmd.Process.Wait()
 	}
 
@@ -134,12 +140,20 @@ func goRun(sourceName string) {
 				defer f.Close()
 			}
 		}
+		runCmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		runCmd.Stdout = os.Stdout
 		runCmd.Stderr = os.Stderr
 		runCmd.Start()
 		log.Println("go run", watchedRun, "("+strconv.Itoa(runCmd.Process.Pid)+")")
 		runCmd.Wait()
 	}(runCmd)
+}
+
+func cleanUp() {
+	if runCmd != nil && runCmd.Process != nil {
+		syscall.Kill(-runCmd.Process.Pid, syscall.SIGKILL)
+		runCmd.Process.Wait()
+	}
 }
 
 func main() {
@@ -186,6 +200,7 @@ func gowatchMain() {
 
 	if len(watchedRun) > 0 && !*noRun {
 		go goRun(watchedRun)
+        defer cleanUp()
 	}
 
 	log.Println("watching", path)
@@ -193,22 +208,34 @@ func gowatchMain() {
 	fi, _ := os.Stdout.Stat()
 	isPipe = fi.Mode()&os.ModeNamedPipe != 0
 
-	for event := range watcher.Events {
-		if event.Op == fsnotify.Create || event.Op == fsnotify.Write {
-			if time.Since(lastReport[event.Name]) < time.Duration(*delay)*time.Second {
-				continue
-			}
-			lastReport[event.Name] = time.Now()
-			relPath, _ := filepath.Rel(path, event.Name)
-			if isPipe {
-				io.WriteString(os.Stdout, relPath+"\n")
-			} else {
-				if f, _ := os.Stat(event.Name); isGoFile(f) {
-					format(event.Name)
-					if event.Name == watchedRun && !*noRun {
-						go goRun(watchedRun)
+	sig := make(chan os.Signal)
+	signal.Notify(sig, os.Interrupt, os.Kill)
+    
+	for {
+		select {
+		case <-sig:
+			return
+		case event, more := <-watcher.Events:
+			if more {
+				if event.Op == fsnotify.Create || event.Op == fsnotify.Write {
+					if time.Since(lastReport[event.Name]) < time.Duration(*delay)*time.Second {
+						continue
+					}
+					lastReport[event.Name] = time.Now()
+					relPath, _ := filepath.Rel(path, event.Name)
+					if isPipe {
+						io.WriteString(os.Stdout, relPath+"\n")
+					} else {
+						if f, _ := os.Stat(event.Name); isGoFile(f) {
+							format(event.Name)
+							if event.Name == watchedRun && !*noRun {
+								go goRun(watchedRun)
+							}
+						}
 					}
 				}
+			} else {
+				return
 			}
 		}
 	}
