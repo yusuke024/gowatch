@@ -22,8 +22,8 @@ import (
 var (
 	watchedRun = flag.String("r", "", "main go file to run")
 	watchedFmt = "."
-	noRun      = flag.Bool("n", false, "only run gofmt")
-	inFile     = flag.String("in", "", "input file")
+	noRun      = flag.Bool("n", false, "only run gofmt on watched Go files")
+	inFile     = flag.String("i", "", "input file")
 
 	delay      = flag.Int("d", 1, "delay time before detecting file change")
 	isPipe     = false
@@ -106,17 +106,8 @@ func goFiles(path string) (goFiles, mainFiles []string) {
 var goRunCmd *exec.Cmd
 
 func runGoRun(sourceName string) {
-	if goRunCmd != nil && goRunCmd.Process != nil {
-		// to properly kill go run and its children
-		// we need to set goRunCmd.SysProcAttr.Setid to true
-		// and send kill signal to the process group
-		// with negative PID
-		syscall.Kill(-goRunCmd.Process.Pid, syscall.SIGKILL)
-		goRunCmd.Process.Wait()
-	}
-
+	killGoRun()
 	goRunCmd = exec.Command("go", "run", sourceName)
-
 	func(goRunCmd *exec.Cmd) {
 		if len(*inFile) > 0 {
 			f, err := os.Open(*inFile)
