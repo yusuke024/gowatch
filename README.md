@@ -1,11 +1,10 @@
 # gowatch
 
-Yet another files watcher for Gophers and everyone else.
+Go files watcher for Gophers and everyone else.
 
-- Watch Go files.
-- Run `gofmt` on saved files.
-- Run main package go file that has `main` function
-- Or use it with to watch any files and take whatever action you want.
+A tiny Go program that can:
+- Run `gofmt` on saving Go files
+- Run a "main" file and restart when it changes.
 
 ## Install
 
@@ -19,7 +18,6 @@ go get -u github.com/sikhapol/gowatch
 
 ### Simple
 
-If all you want is to:
 - Run `gofmt -w` upon saving *Go* files.
 - Run `main` function when the file is saved.
 
@@ -33,18 +31,28 @@ gowatch
 gowatch /path/to/watch/
 ```
 
+### Specify Go file to run
+```
+gowatch -r /path/to/main.go
+```
+
+### Specify `stdin` for the run main file
+```
+gowatch -i input.txt
+```
 
 ### Format only
 
 ```
-gowatch -n .
+gowatch -n
 ```
 
 ### Delay reporting file change
 
 ```
-gowatch -d 10 #seconds
+gowatch -d 5 #seconds
 ```
+This mean that if a file has changed, gowatch will not take any action if it's changed again within 5 seconds. This is to prevent a loop that cause by gofmt changing the file that cause gowatch to detect change and format the file again and so on. Default is 1 second.
 
 ### For everything else
 
@@ -54,3 +62,6 @@ In this case, it will just print the changed file names to `stdout` which you ca
 ```
 gowatch | xargs cat
 ```
+
+## License
+MIT
